@@ -9,6 +9,9 @@ import openpyxl
 from openpyxl import load_workbook
 from datetime import datetime
 import re
+import time
+import subprocess
+import psutil
 
 EMAIL_LOGIN = "almazgeobur.it@mail.ru"
 EMAIL_PASSWORD = "Ba9uV5zDx6rE1fs6PgsV"
@@ -289,6 +292,85 @@ def create_ostanki_dict(ostanki_df):
     return ostanki_dict
 
 
+def close_file_sessions(file_path):
+    try:
+        file_path_abs = os.path.abspath(file_path)
+        print(f"\nПроверка открытых сеансов файла: {file_path_abs}")
+        
+        processes_to_close = []
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                proc_info = proc.info
+                proc_name = proc_info['name'].lower()
+                
+                if 'p7' in proc_name or 'excel' in proc_name or 'spreadsheet' in proc_name or 'calc' in proc_name:
+                    try:
+                        open_files = proc.open_files()
+                        for file_info in open_files:
+                            if file_info and hasattr(file_info, 'path'):
+                                try:
+                                    if os.path.abspath(file_info.path) == file_path_abs:
+                                        processes_to_close.append((proc_info['pid'], proc_info['name']))
+                                        break
+                                except:
+                                    pass
+                    except (psutil.AccessDenied, psutil.NoSuchProcess):
+                        pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        
+        if processes_to_close:
+            print(f"Найдено {len(processes_to_close)} процессов, открывающих файл:")
+            for pid, name in processes_to_close:
+                print(f"  - PID {pid}: {name}")
+            
+            print("Закрытие процессов...")
+            for pid, name in processes_to_close:
+                try:
+                    proc = psutil.Process(pid)
+                    proc.terminate()
+                    print(f"  Закрыт процесс {name} (PID {pid})")
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    print(f"  Не удалось закрыть процесс {name} (PID {pid}): {e}")
+            
+            time.sleep(2)
+            
+            for pid, name in processes_to_close:
+                try:
+                    proc = psutil.Process(pid)
+                    if proc.is_running():
+                        proc.kill()
+                        print(f"  Принудительно закрыт процесс {name} (PID {pid})")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            
+            time.sleep(1)
+        else:
+            print("Файл не открыт в других процессах")
+        
+        max_wait = 30
+        wait_time = 0
+        while wait_time < max_wait:
+            try:
+                with open(file_path, 'r+b') as f:
+                    pass
+                print("Файл освобожден и готов к обновлению")
+                return True
+            except (PermissionError, IOError):
+                wait_time += 1
+                if wait_time % 5 == 0:
+                    print(f"Ожидание освобождения файла... ({wait_time}/{max_wait} сек)")
+                time.sleep(1)
+        
+        print(f"Предупреждение: файл не освобожден за {max_wait} секунд, продолжаем...")
+        return False
+    except Exception as e:
+        print(f"Ошибка при закрытии сеансов файла: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def update_ostanki_in_all_sheets(main_file_path, ostanki_dict):
     try:
         wb = load_workbook(main_file_path)
@@ -397,7 +479,10 @@ def main(use_local_file=None):
             mail.logout()
             return
     
-    print("\n4. Обновление листа 'остатки'...")
+    print("\n4. Закрытие сеансов файла перед обновлением...")
+    close_file_sessions(MAIN_FILE)
+    
+    print("\n5. Обновление листа 'остатки'...")
     ostanki_df = update_ostanki_sheet(TEMP_BOT_FILE, MAIN_FILE)
     if ostanki_df is None:
         print("Не удалось обновить лист остатки")
@@ -408,10 +493,11 @@ def main(use_local_file=None):
             mail.logout()
         return
     
-    print("\n5. Создание словаря остатков...")
+    print("\n6. Создание словаря остатков...")
     ostanki_dict = create_ostanki_dict(ostanki_df)
     
-    print("\n6. Обновление остатков на всех листах...")
+    print("\n7. Обновление остатков на всех листах...")
+    close_file_sessions(MAIN_FILE)
     updated_sheets = update_ostanki_in_all_sheets(MAIN_FILE, ostanki_dict)
     
     if os.path.exists(TEMP_BOT_FILE):
