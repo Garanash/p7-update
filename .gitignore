@@ -1,7 +1,3 @@
-# Excel файлы (слишком большие для git)
-*.xlsx
-*.xls
-
 # Временные файлы
 temp_bot_file.xlsx
 *.tmp
