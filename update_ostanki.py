@@ -219,7 +219,12 @@ def download_file_from_p7(file_id, save_path):
             except requests.exceptions.RequestException as e:
                 logger.debug(f"  Ошибка при скачивании по пути {getfile_path}: {e}")
         
-        logger.warning("Не удалось скачать файл с Document Server")
+        logger.warning("Не удалось скачать файл с Document Server через WOPI API")
+        logger.info("Возможные причины:")
+        logger.info("  1. WOPI API не включен на сервере")
+        logger.info("  2. Файл не загружен в Document Server через WOPI")
+        logger.info("  3. Используется другой API (например, API корпоративного сервера)")
+        logger.info("  4. Неправильный file_id или путь к API")
         return False
     except Exception as e:
         logger.error(f"Ошибка при скачивании файла с Document Server: {e}", exc_info=True)
