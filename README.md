@@ -240,31 +240,47 @@ P7_DOC_SERVER_URL не настроен, используем локальное
 
 **Основная документация:**
 
-1. **Document Server - Установка и настройка:**
-   - https://support.r7-office.ru/category/document_server/ustanovka-i-nastrojka/
+1. **Document Server - общая документация:**
+   - https://support.r7-office.ru/category/document_server/
+   - Все разделы документации Document Server
+
+2. **Document Server - настройки:**
+   - https://support.r7-office.ru/category/document_server/settings-ds/
    - Здесь можно найти URL сервера и параметры подключения
 
-2. **Document Server - API:**
+3. **Document Server - API:**
    - https://support.r7-office.ru/category/document_server/api-document_server/
    - Описание всех API endpoints, включая получение токенов
 
-3. **WOPI REST API:**
-   - https://support.r7-office.ru/category/document_server/api-document_server/wopi-rest-api/
-   - Документация по WOPI протоколу для работы с файлами
+4. **Использование API Document Server:**
+   - https://support.r7-office.ru/document_server/api-document_server/using-api-document_server/
+   - Практические примеры работы с API
 
-4. **Corporate Server 2024:**
+5. **Конфигурация API:**
+   - https://support.r7-office.ru/document_server/api-document_server/using-api-document_server/config/config/
+   - Настройка параметров API, включая токены доступа
+
+6. **Corporate Server 2024:**
    - https://support.r7-office.ru/category/corporate-server2024/
    - Настройка корпоративного сервера и интеграция с Document Server
 
-5. **Настройка безопасности:**
-   - https://support.r7-office.ru/category/document_server/ustanovka-i-nastrojka/nastrojka-bezopasnosti/
-   - Настройка токенов доступа и аутентификации
-
 **Где конкретно искать параметры:**
 
-- **P7_DOC_SERVER_URL**: Раздел "Установка и настройка" → "Настройка сетевых параметров"
-- **P7_ACCESS_TOKEN**: Раздел "API" → "Аутентификация" или "Настройка безопасности" → "Токены доступа"
-- **P7_FILE_ID**: Раздел "API" → "Работа с файлами" или в URL при открытии файла в браузере
+- **P7_DOC_SERVER_URL**: 
+  - Раздел "Настройки Document Server" → "Сетевые параметры"
+  - Административная панель Corporate Server → "Настройки Document Server"
+  - Документация: https://support.r7-office.ru/category/document_server/settings-ds/
+
+- **P7_ACCESS_TOKEN**: 
+  - Раздел "API" → "Аутентификация"
+  - Раздел "Настройки" → "Безопасность" → "Токены доступа"
+  - Документация: https://support.r7-office.ru/document_server/api-document_server/using-api-document_server/config/config/
+
+- **P7_FILE_ID**: 
+  - Раздел "API" → "Работа с файлами"
+  - ID можно найти в URL при открытии файла в браузере P7-Офис
+  - Административная панель → список файлов
+  - Документация: https://support.r7-office.ru/category/document_server/api-document_server/
 
 3. **Обратитесь к администратору P7-Офис** в вашей организации для получения:
    - URL Document Server
