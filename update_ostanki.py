@@ -171,9 +171,74 @@ def download_attachment(part, save_path):
         return False
 
 
+def download_file_from_p7(file_id, save_path):
+    try:
+        if not P7_DOC_SERVER_URL or P7_DOC_SERVER_URL == "" or "your-p7-doc-server" in P7_DOC_SERVER_URL:
+            logger.debug("P7_DOC_SERVER_URL не настроен, пропускаем скачивание файла")
+            return False
+        
+        try:
+            verify_ssl = P7_VERIFY_SSL
+        except NameError:
+            verify_ssl = True
+        
+        headers = {}
+        if P7_ACCESS_TOKEN:
+            headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
+        
+        base_url = P7_DOC_SERVER_URL.rstrip('/')
+        file_id_encoded = requests.utils.quote(str(file_id), safe='')
+        
+        getfile_paths = [
+            f"{base_url}/wopi/files/{file_id_encoded}/contents",
+            f"{base_url}/wopi/files/{file_id}/contents",
+            f"{base_url}/Products/Files/wopi/files/{file_id_encoded}/contents",
+            f"{base_url}/Products/Files/wopi/files/{file_id}/contents",
+            f"{base_url}/api/wopi/files/{file_id_encoded}/contents",
+            f"{base_url}/api/wopi/files/{file_id}/contents"
+        ]
+        
+        logger.info(f"Попытка скачать файл с Document Server: {file_id}")
+        
+        for getfile_path in getfile_paths:
+            logger.debug(f"Пробуем скачать файл по пути: {getfile_path}")
+            try:
+                response = requests.get(getfile_path, headers=headers, timeout=30, verify=verify_ssl)
+                if response.status_code == 200:
+                    with open(save_path, 'wb') as f:
+                        f.write(response.content)
+                    file_size = os.path.getsize(save_path)
+                    logger.info(f"✓ Файл успешно скачан с сервера: {save_path} (размер: {file_size} байт)")
+                    return True
+                elif response.status_code == 401:
+                    logger.warning(f"  Требуется аутентификация для пути: {getfile_path}")
+                elif response.status_code == 403:
+                    logger.warning(f"  Доступ запрещен для пути: {getfile_path}")
+                elif response.status_code != 404:
+                    logger.debug(f"  Неожиданный ответ {response.status_code} для пути {getfile_path}")
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"  Ошибка при скачивании по пути {getfile_path}: {e}")
+        
+        logger.warning("Не удалось скачать файл с Document Server")
+        return False
+    except Exception as e:
+        logger.error(f"Ошибка при скачивании файла с Document Server: {e}", exc_info=True)
+        return False
+
+
 def update_ostanki_sheet(bot_file_path, main_file_path):
     logger.info(f"Обновление листа '{SHEET_OSTANKI}' из файла: {bot_file_path}")
     try:
+        if not os.path.exists(main_file_path):
+            logger.warning(f"Файл {main_file_path} не найден локально")
+            file_id = P7_FILE_ID if P7_FILE_ID else os.path.basename(main_file_path)
+            logger.info(f"Попытка скачать файл с Document Server (ID: {file_id})...")
+            if download_file_from_p7(file_id, main_file_path):
+                logger.info(f"Файл успешно скачан с сервера")
+            else:
+                logger.error(f"Не удалось скачать файл с сервера и файл отсутствует локально")
+                return None
+        
         logger.debug("Чтение файла бота...")
         bot_df = pd.read_excel(bot_file_path, sheet_name=0)
         logger.info(f"Прочитано строк из файла бота: {len(bot_df)}")
