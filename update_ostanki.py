@@ -393,13 +393,14 @@ def close_file_sessions_p7_api(file_path):
             wopi_url = None
             response = None
             logger.info(f"Поиск правильного пути к WOPI API для файла ID: {file_id}")
+            logger.info(f"Базовый URL: {base_url}")
             
             for wopi_path in wopi_paths:
                 test_url = f"{wopi_path}/checkfileinfo"
-                logger.debug(f"Пробуем путь: {test_url}")
+                logger.info(f"Пробуем путь: {test_url}")
                 try:
                     test_response = requests.get(test_url, headers=headers, timeout=10, verify=verify_ssl)
-                    logger.debug(f"  Ответ: {test_response.status_code} - {test_response.reason}")
+                    logger.info(f"  Ответ: {test_response.status_code} - {test_response.reason}")
                     if test_response.status_code == 200:
                         wopi_url = wopi_path
                         response = test_response
@@ -410,9 +411,11 @@ def close_file_sessions_p7_api(file_path):
                     elif test_response.status_code == 403:
                         logger.warning(f"  Доступ запрещен для пути: {wopi_path}")
                     elif test_response.status_code != 404:
-                        logger.debug(f"  Неожиданный ответ {test_response.status_code} для пути {wopi_path}")
+                        logger.info(f"  Неожиданный ответ {test_response.status_code} для пути {wopi_path}")
+                        if hasattr(test_response, 'text') and test_response.text:
+                            logger.debug(f"  Тело ответа: {test_response.text[:200]}")
                 except requests.exceptions.RequestException as e:
-                    logger.debug(f"  Ошибка при запросе к {test_url}: {e}")
+                    logger.warning(f"  Ошибка при запросе к {test_url}: {e}")
             
             if response and response.status_code == 200:
                 file_info = response.json()
