@@ -12,6 +12,8 @@ import re
 import time
 import subprocess
 import psutil
+import requests
+import json
 
 EMAIL_LOGIN = "almazgeobur.it@mail.ru"
 EMAIL_PASSWORD = "Ba9uV5zDx6rE1fs6PgsV"
@@ -21,6 +23,13 @@ IMAP_PORT = 993
 MAIN_FILE = "Сборка Москва.xlsx"
 TEMP_BOT_FILE = "temp_bot_file.xlsx"
 SHEET_OSTANKI = "остатки"
+
+try:
+    from config_p7 import P7_DOC_SERVER_URL, P7_ACCESS_TOKEN, P7_FILE_ID
+except ImportError:
+    P7_DOC_SERVER_URL = os.getenv("P7_DOC_SERVER_URL", "")
+    P7_ACCESS_TOKEN = os.getenv("P7_ACCESS_TOKEN", "")
+    P7_FILE_ID = os.getenv("P7_FILE_ID", "")
 
 
 def connect_to_email():
@@ -292,10 +301,118 @@ def create_ostanki_dict(ostanki_df):
     return ostanki_dict
 
 
-def close_file_sessions(file_path):
+def close_file_sessions_p7_api(file_path):
     try:
         file_path_abs = os.path.abspath(file_path)
-        print(f"\nПроверка открытых сеансов файла: {file_path_abs}")
+        file_name = os.path.basename(file_path)
+        
+        if not P7_DOC_SERVER_URL or P7_DOC_SERVER_URL == "" or "your-p7-doc-server" in P7_DOC_SERVER_URL:
+            print(f"\nP7_DOC_SERVER_URL не настроен, используем локальное закрытие процессов")
+            return close_file_sessions_local(file_path)
+        
+        print(f"\nЗакрытие сеансов P7-Офис через Document Server API для файла: {file_name}")
+        
+        try:
+            file_id = P7_FILE_ID if P7_FILE_ID else file_name
+            
+            headers = {}
+            if P7_ACCESS_TOKEN:
+                headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
+            
+            wopi_url = f"{P7_DOC_SERVER_URL}/wopi/files/{file_id}"
+            
+            print(f"Проверка информации о файле через WOPI API...")
+            check_info_url = f"{wopi_url}/checkfileinfo"
+            response = requests.get(check_info_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                file_info = response.json()
+                print(f"Файл найден в Document Server")
+                
+                if file_info.get("UserCanWrite", False):
+                    lock_value = file_info.get("LockValue", "")
+                    if lock_value:
+                        print(f"Найдена блокировка файла: {lock_value}")
+                        
+                        unlock_url = f"{wopi_url}/unlock"
+                        unlock_headers = headers.copy()
+                        unlock_headers["X-WOPI-Lock"] = lock_value
+                        
+                        unlock_response = requests.post(unlock_url, headers=unlock_headers, timeout=10)
+                        if unlock_response.status_code == 200:
+                            print("Блокировка файла снята через WOPI API")
+                        else:
+                            print(f"Не удалось снять блокировку: {unlock_response.status_code}")
+                
+                sessions_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions"
+                sessions_response = requests.get(sessions_url, headers=headers, timeout=10)
+                
+                if sessions_response.status_code == 200:
+                    sessions = sessions_response.json()
+                    file_sessions = [s for s in sessions if file_id in str(s.get("documentId", "")) or file_name in str(s.get("documentName", ""))]
+                    
+                    if file_sessions:
+                        print(f"Найдено {len(file_sessions)} активных сеансов:")
+                        for session in file_sessions:
+                            session_id = session.get("sessionId", "unknown")
+                            user_name = session.get("userName", "unknown")
+                            print(f"  - Сеанс {session_id}: пользователь {user_name}")
+                        
+                        print("Закрытие сеансов...")
+                        for session in file_sessions:
+                            session_id = session.get("sessionId")
+                            if session_id:
+                                close_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions/{session_id}"
+                                close_response = requests.delete(close_url, headers=headers, timeout=10)
+                                if close_response.status_code in [200, 204]:
+                                    print(f"  Сеанс {session_id} закрыт")
+                                else:
+                                    print(f"  Не удалось закрыть сеанс {session_id}: {close_response.status_code}")
+                    else:
+                        print("Активных сеансов не найдено")
+                else:
+                    print(f"Не удалось получить список сеансов: {sessions_response.status_code}")
+            else:
+                print(f"Файл не найден в Document Server или ошибка доступа: {response.status_code}")
+                print("Пробуем локальное закрытие процессов...")
+                return close_file_sessions_local(file_path)
+            
+            time.sleep(2)
+            
+            max_wait = 30
+            wait_time = 0
+            while wait_time < max_wait:
+                try:
+                    with open(file_path, 'r+b') as f:
+                        pass
+                    print("Файл освобожден и готов к обновлению")
+                    return True
+                except (PermissionError, IOError):
+                    wait_time += 1
+                    if wait_time % 5 == 0:
+                        print(f"Ожидание освобождения файла... ({wait_time}/{max_wait} сек)")
+                    time.sleep(1)
+            
+            print(f"Предупреждение: файл не освобожден за {max_wait} секунд, продолжаем...")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка при работе с P7 Document Server API: {e}")
+            print("Пробуем локальное закрытие процессов...")
+            return close_file_sessions_local(file_path)
+            
+    except Exception as e:
+        print(f"Ошибка при закрытии сеансов через P7 API: {e}")
+        import traceback
+        traceback.print_exc()
+        print("Пробуем локальное закрытие процессов...")
+        return close_file_sessions_local(file_path)
+
+
+def close_file_sessions_local(file_path):
+    try:
+        file_path_abs = os.path.abspath(file_path)
+        print(f"Локальное закрытие процессов для файла: {file_path_abs}")
         
         processes_to_close = []
         for proc in psutil.process_iter(['pid', 'name']):
@@ -365,10 +482,14 @@ def close_file_sessions(file_path):
         print(f"Предупреждение: файл не освобожден за {max_wait} секунд, продолжаем...")
         return False
     except Exception as e:
-        print(f"Ошибка при закрытии сеансов файла: {e}")
+        print(f"Ошибка при локальном закрытии сеансов: {e}")
         import traceback
         traceback.print_exc()
         return False
+
+
+def close_file_sessions(file_path):
+    return close_file_sessions_p7_api(file_path)
 
 
 def update_ostanki_in_all_sheets(main_file_path, ostanki_dict):

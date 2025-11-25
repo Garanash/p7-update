@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+P7_DOC_SERVER_URL = "http://your-p7-doc-server:8080"
+P7_ACCESS_TOKEN = "your-access-token-here"
+P7_FILE_ID = "your-file-id-or-filename"
+

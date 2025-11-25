@@ -2,6 +2,9 @@
 temp_bot_file.xlsx
 *.tmp
 
+# Конфигурационные файлы с секретными данными
+config_p7.py
+
 # Python
 __pycache__/
 *.py[cod]

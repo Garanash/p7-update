@@ -18,7 +18,9 @@
 pip install -r requirements.txt
 ```
 
-## Настройка почты
+## Настройка
+
+### Настройка почты
 
 Скрипт настроен на работу с почтой **almazgeobur.it@mail.ru**.
 
@@ -26,6 +28,26 @@ pip install -r requirements.txt
 - EMAIL_LOGIN = "almazgeobur.it@mail.ru"
 - EMAIL_PASSWORD = "Ba9uV5zDx6rE1fs6PgsV"
 - IMAP_SERVER = "imap.mail.ru"
+
+### Настройка P7-Офис Document Server
+
+Для работы с корпоративной лицензией P7-Офис необходимо настроить подключение к Document Server:
+
+1. Создайте файл `config_p7.py` на основе `config_p7.py.example`:
+```python
+P7_DOC_SERVER_URL = "http://your-p7-doc-server:8080"
+P7_ACCESS_TOKEN = "your-access-token-here"
+P7_FILE_ID = "your-file-id-or-filename"
+```
+
+2. Укажите параметры:
+   - `P7_DOC_SERVER_URL` - URL вашего P7 Document Server
+   - `P7_ACCESS_TOKEN` - токен доступа для API (если требуется)
+   - `P7_FILE_ID` - ID файла в Document Server (или имя файла)
+
+3. Если `config_p7.py` не настроен, скрипт будет использовать локальное закрытие процессов через psutil.
+
+**Важно:** Скрипт автоматически закрывает все сеансы P7-Офис, работающие с файлом, перед обновлением данных через Document Server API.
 
 ## Использование
 
