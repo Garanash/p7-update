@@ -5,7 +5,7 @@
 # Документация: https://support.r7-office.ru/category/document_server/
 #
 # P7_DOC_SERVER_URL - URL вашего P7 Document Server
-# Документация: https://support.r7-office.ru/category/document_server/ustanovka-i-nastrojka/
+# Документация: https://support.r7-office.ru/category/document_server/settings-ds/
 # Пример: "http://192.168.1.100:8080" или "https://doc-server.company.com"
 P7_DOC_SERVER_URL = "http://your-p7-doc-server:8080"
 #

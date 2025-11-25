@@ -68,13 +68,13 @@ cp config_p7.py.example config_p7.py
 
 **Где найти:**
 - В настройках P7 Corporate Server 2024 (административная панель)
-- В документации по установке Document Server: https://support.r7-office.ru/category/document_server/ustanovka-i-nastrojka/
-- В документации Corporate Server 2024: https://support.r7-office.ru/category/corporate-server2024/
+- В документации по настройке Document Server
 - У администратора P7-Офис в вашей организации
 
 **Документация:**
-- Установка и настройка Document Server: https://support.r7-office.ru/category/document_server/ustanovka-i-nastrojka/
-- Настройка Corporate Server: https://support.r7-office.ru/category/corporate-server2024/ustanovka-i-nastrojka/
+- Document Server - настройки: https://support.r7-office.ru/category/document_server/settings-ds/
+- Document Server - общая документация: https://support.r7-office.ru/category/document_server/
+- Corporate Server 2024: https://support.r7-office.ru/category/corporate-server2024/
 
 **Пример:**
 ```python
@@ -94,8 +94,8 @@ P7_DOC_SERVER_URL = "https://doc-server.company.local"
 
 **Документация:**
 - API Document Server: https://support.r7-office.ru/category/document_server/api-document_server/
-- WOPI REST API: https://support.r7-office.ru/category/document_server/api-document_server/wopi-rest-api/
-- Настройка безопасности: https://support.r7-office.ru/category/document_server/ustanovka-i-nastrojka/nastrojka-bezopasnosti/
+- Использование API: https://support.r7-office.ru/document_server/api-document_server/using-api-document_server/
+- Настройки Document Server: https://support.r7-office.ru/category/document_server/settings-ds/
 
 **Пример:**
 ```python
@@ -115,8 +115,9 @@ P7_ACCESS_TOKEN = ""
 - В административной панели Document Server в списке файлов
 
 **Документация:**
-- Работа с файлами через API: https://support.r7-office.ru/category/document_server/api-document_server/
-- WOPI CheckFileInfo: https://support.r7-office.ru/category/document_server/api-document_server/wopi-rest-api/
+- API Document Server: https://support.r7-office.ru/category/document_server/api-document_server/
+- Использование API: https://support.r7-office.ru/document_server/api-document_server/using-api-document_server/
+- Конфигурация API: https://support.r7-office.ru/document_server/api-document_server/using-api-document_server/config/config/
 
 **Примеры:**
 
