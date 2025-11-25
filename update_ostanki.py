@@ -374,7 +374,13 @@ def close_file_sessions_p7_api(file_path):
             if P7_ACCESS_TOKEN:
                 headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
             
-            wopi_url = f"{P7_DOC_SERVER_URL}/wopi/files/{file_id}"
+            base_url = P7_DOC_SERVER_URL.rstrip('/')
+            wopi_paths = [
+                f"{base_url}/wopi/files/{file_id}",
+                f"{base_url}/Products/Files/wopi/files/{file_id}",
+                f"{base_url}/api/wopi/files/{file_id}"
+            ]
+            wopi_url = wopi_paths[0]
             check_info_url = f"{wopi_url}/checkfileinfo"
             
             try:
@@ -403,7 +409,8 @@ def close_file_sessions_p7_api(file_path):
                         else:
                             logger.warning(f"Не удалось снять блокировку: {unlock_response.status_code}")
                 
-                sessions_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions"
+                base_url = P7_DOC_SERVER_URL.rstrip('/')
+                sessions_url = f"{base_url}/api/v1/sessions"
                 logger.debug(f"Получение списка сеансов: {sessions_url}")
                 sessions_response = requests.get(sessions_url, headers=headers, timeout=10, verify=verify_ssl)
                 
@@ -422,7 +429,8 @@ def close_file_sessions_p7_api(file_path):
                         for session in file_sessions:
                             session_id = session.get("sessionId")
                             if session_id:
-                                close_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions/{session_id}"
+                                base_url = P7_DOC_SERVER_URL.rstrip('/')
+                                close_url = f"{base_url}/api/v1/sessions/{session_id}"
                                 close_response = requests.delete(close_url, headers=headers, timeout=10, verify=verify_ssl)
                                 if close_response.status_code in [200, 204]:
                                     logger.info(f"  Сеанс {session_id} закрыт")
@@ -573,7 +581,8 @@ def upload_file_to_p7(file_path):
         if P7_ACCESS_TOKEN:
             headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
         
-        wopi_url = f"{P7_DOC_SERVER_URL}/wopi/files/{file_id}"
+        base_url = P7_DOC_SERVER_URL.rstrip('/')
+        wopi_url = f"{base_url}/wopi/files/{file_id}"
         put_url = f"{wopi_url}/contents"
         
         logger.info(f"Загрузка обновленного файла в Document Server: {file_name}")
