@@ -33,25 +33,126 @@ pip install -r requirements.txt
 
 Скрипт поддерживает работу с корпоративной лицензией **P7-Офис Corporate Server 2024** и **P7 Document Server**. Перед обновлением файла скрипт автоматически закрывает все активные сеансы пользователей через Document Server API.
 
-#### Настройка подключения
+#### Шаг 1: Создание файла конфигурации
 
-1. **Создайте файл конфигурации** `config_p7.py` на основе `config_p7.py.example`:
+Создайте файл `config_p7.py` в корне проекта на основе примера:
+
+**Windows:**
+```bash
+copy config_p7.py.example config_p7.py
+```
+
+**Linux/Mac:**
 ```bash
 cp config_p7.py.example config_p7.py
 ```
 
-2. **Отредактируйте `config_p7.py`** и укажите параметры вашего P7 Document Server:
+Или создайте файл вручную в папке проекта.
+
+#### Шаг 2: Получение данных для настройки
+
+**1. P7_DOC_SERVER_URL (URL Document Server)**
+
+Это адрес вашего P7 Document Server. Обычно это:
+- `http://your-server-ip:8080` - если Document Server на отдельном сервере
+- `http://localhost:8080` - если Document Server на том же компьютере
+- `https://doc-server.company.com` - если используется доменное имя
+
+**Где найти:**
+- В настройках P7 Corporate Server 2024
+- В документации по интеграции: https://support.r7-office.ru/category/corporate-server2024/
+- У администратора P7-Офис
+
+**Пример:**
 ```python
-P7_DOC_SERVER_URL = "http://your-p7-doc-server:8080"
-P7_ACCESS_TOKEN = "your-access-token-here"
-P7_FILE_ID = "your-file-id-or-filename"
+P7_DOC_SERVER_URL = "http://192.168.1.100:8080"
+# или
+P7_DOC_SERVER_URL = "https://doc-server.company.local"
 ```
 
-#### Параметры конфигурации
+**2. P7_ACCESS_TOKEN (Токен доступа)**
 
-- **`P7_DOC_SERVER_URL`** - URL вашего P7 Document Server (например: `http://doc-server.company.com:8080`)
-- **`P7_ACCESS_TOKEN`** - токен доступа для API (если требуется аутентификация)
-- **`P7_FILE_ID`** - ID файла в Document Server или имя файла (например: `Сборка Москва.xlsx`)
+Токен для аутентификации в API (если требуется).
+
+**Где найти:**
+- В настройках безопасности P7 Document Server
+- В административной панели Corporate Server
+- Может быть необязательным, если используется внутренняя сеть
+
+**Пример:**
+```python
+P7_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0..."
+# или оставьте пустым, если токен не требуется:
+P7_ACCESS_TOKEN = ""
+```
+
+**3. P7_FILE_ID (ID или имя файла)**
+
+Идентификатор файла в Document Server или просто имя файла.
+
+**Где найти:**
+- Если файл загружен в Document Server - используйте ID файла из системы
+- Или просто укажите имя файла: `Сборка Москва.xlsx`
+- ID можно найти в URL при открытии файла в P7-Офис
+
+**Пример:**
+```python
+P7_FILE_ID = "Сборка Москва.xlsx"
+# или ID файла в системе:
+P7_FILE_ID = "file-id-12345-67890"
+```
+
+#### Шаг 3: Заполнение config_p7.py
+
+Откройте файл `config_p7.py` в текстовом редакторе и заполните значения:
+
+```python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# URL вашего P7 Document Server
+# Пример: "http://192.168.1.100:8080" или "https://doc-server.company.com"
+P7_DOC_SERVER_URL = "http://ваш-сервер:8080"
+
+# Токен доступа (если требуется)
+# Оставьте пустым "", если токен не нужен
+P7_ACCESS_TOKEN = "ваш-токен-или-пусто"
+
+# ID файла или имя файла
+# Пример: "Сборка Москва.xlsx" или "file-id-12345"
+P7_FILE_ID = "Сборка Москва.xlsx"
+```
+
+#### Примеры конфигурации
+
+**Пример 1: Document Server на локальной сети**
+```python
+P7_DOC_SERVER_URL = "http://192.168.1.50:8080"
+P7_ACCESS_TOKEN = ""
+P7_FILE_ID = "Сборка Москва.xlsx"
+```
+
+**Пример 2: Document Server с доменным именем и токеном**
+```python
+P7_DOC_SERVER_URL = "https://doc-server.company.local"
+P7_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+P7_FILE_ID = "file-abc123-def456"
+```
+
+**Пример 3: Без Document Server (локальное закрытие)**
+```python
+# Оставьте значения по умолчанию или не создавайте config_p7.py
+# Скрипт автоматически использует локальное закрытие процессов
+P7_DOC_SERVER_URL = ""
+P7_ACCESS_TOKEN = ""
+P7_FILE_ID = ""
+```
+
+#### Проверка настройки
+
+После настройки запустите скрипт и проверьте логи:
+- Если видите `Закрытие сеансов P7-Офис через Document Server API` - API настроен правильно
+- Если видите `P7_DOC_SERVER_URL не настроен, используем локальное закрытие процессов` - используется локальный метод
 
 #### Как работает закрытие сеансов
 
@@ -67,21 +168,64 @@ P7_FILE_ID = "your-file-id-or-filename"
    - Закрывает процессы через psutil
    - Ожидает освобождения файла
 
-#### Примеры использования
+#### Шаг 4: Примеры заполнения config_p7.py
 
-**С Document Server:**
+**Пример 1: Document Server в локальной сети (без токена)**
 ```python
-# config_p7.py
-P7_DOC_SERVER_URL = "http://doc-server.company.com:8080"
-P7_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+P7_DOC_SERVER_URL = "http://192.168.1.50:8080"
+P7_ACCESS_TOKEN = ""
 P7_FILE_ID = "Сборка Москва.xlsx"
 ```
 
-**Без Document Server (локальное закрытие):**
+**Пример 2: Document Server с доменным именем и токеном**
 ```python
-# config_p7.py не создан или содержит значения по умолчанию
-# Скрипт автоматически использует локальное закрытие процессов
+P7_DOC_SERVER_URL = "https://doc-server.company.local"
+P7_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0..."
+P7_FILE_ID = "file-abc123-def456"
 ```
+
+**Пример 3: Без Document Server (использование локального закрытия)**
+```python
+# Если не знаете параметры или не используете Document Server:
+P7_DOC_SERVER_URL = ""
+P7_ACCESS_TOKEN = ""
+P7_FILE_ID = ""
+# Или просто не создавайте config_p7.py - скрипт автоматически использует локальное закрытие
+```
+
+#### Шаг 5: Проверка настройки
+
+После заполнения `config_p7.py` запустите скрипт и проверьте вывод:
+
+**Если API настроен правильно, вы увидите:**
+```
+Закрытие сеансов P7-Офис через Document Server API для файла: Сборка Москва.xlsx
+Проверка информации о файле через WOPI API...
+Файл найден в Document Server
+```
+
+**Если API не настроен, вы увидите:**
+```
+P7_DOC_SERVER_URL не настроен, используем локальное закрытие процессов
+Локальное закрытие процессов для файла: ...
+```
+
+#### Где найти данные в документации P7-Офис
+
+1. **Документация Corporate Server 2024:**
+   - https://support.r7-office.ru/category/corporate-server2024/
+   - Раздел "Настройка Document Server"
+   - Раздел "API и интеграция"
+
+2. **Документация Document Server:**
+   - https://support.r7-office.ru/category/doc-server/
+   - Раздел "WOPI REST API"
+   - Раздел "Управление сессиями"
+
+3. **Обратитесь к администратору P7-Офис** в вашей организации для получения:
+   - URL Document Server
+   - Токена доступа (если требуется)
+   - ID файла в системе
 
 #### Важные замечания
 
