@@ -378,19 +378,43 @@ def close_file_sessions_p7_api(file_path):
             wopi_paths = [
                 f"{base_url}/wopi/files/{file_id}",
                 f"{base_url}/Products/Files/wopi/files/{file_id}",
-                f"{base_url}/api/wopi/files/{file_id}"
+                f"{base_url}/api/wopi/files/{file_id}",
+                f"{base_url}/Products/api/wopi/files/{file_id}",
+                f"{base_url}/api/v1/files/{file_id}",
+                f"{base_url}/Products/Files/api/v1/files/{file_id}",
+                f"{base_url}/Products/api/v1/files/{file_id}"
             ]
-            wopi_url = wopi_paths[0]
-            check_info_url = f"{wopi_url}/checkfileinfo"
             
             try:
                 verify_ssl = P7_VERIFY_SSL
             except NameError:
                 verify_ssl = True
-            logger.debug(f"Проверка информации о файле через WOPI API: {check_info_url} (SSL verify: {verify_ssl})")
-            response = requests.get(check_info_url, headers=headers, timeout=10, verify=verify_ssl)
             
-            if response.status_code == 200:
+            wopi_url = None
+            response = None
+            logger.info(f"Поиск правильного пути к WOPI API для файла ID: {file_id}")
+            
+            for wopi_path in wopi_paths:
+                test_url = f"{wopi_path}/checkfileinfo"
+                logger.debug(f"Пробуем путь: {test_url}")
+                try:
+                    test_response = requests.get(test_url, headers=headers, timeout=10, verify=verify_ssl)
+                    logger.debug(f"  Ответ: {test_response.status_code} - {test_response.reason}")
+                    if test_response.status_code == 200:
+                        wopi_url = wopi_path
+                        response = test_response
+                        logger.info(f"✓ Найден рабочий путь WOPI: {wopi_path}")
+                        break
+                    elif test_response.status_code == 401:
+                        logger.warning(f"  Требуется аутентификация для пути: {wopi_path}")
+                    elif test_response.status_code == 403:
+                        logger.warning(f"  Доступ запрещен для пути: {wopi_path}")
+                    elif test_response.status_code != 404:
+                        logger.debug(f"  Неожиданный ответ {test_response.status_code} для пути {wopi_path}")
+                except requests.exceptions.RequestException as e:
+                    logger.debug(f"  Ошибка при запросе к {test_url}: {e}")
+            
+            if response and response.status_code == 200:
                 file_info = response.json()
                 logger.info("Файл найден в Document Server")
                 
@@ -430,22 +454,50 @@ def close_file_sessions_p7_api(file_path):
                             session_id = session.get("sessionId")
                             if session_id:
                                 base_url = P7_DOC_SERVER_URL.rstrip('/')
-                                close_url = f"{base_url}/api/v1/sessions/{session_id}"
-                                close_response = requests.delete(close_url, headers=headers, timeout=10, verify=verify_ssl)
-                                if close_response.status_code in [200, 204]:
-                                    logger.info(f"  Сеанс {session_id} закрыт")
-                                else:
-                                    logger.warning(f"  Не удалось закрыть сеанс {session_id}: {close_response.status_code}")
+                                close_paths = [
+                                    f"{base_url}/api/v1/sessions/{session_id}",
+                                    f"{base_url}/Products/Files/api/v1/sessions/{session_id}",
+                                    f"{base_url}/Products/api/v1/sessions/{session_id}",
+                                    f"{base_url}/api/sessions/{session_id}"
+                                ]
+                                
+                                closed = False
+                                for close_path in close_paths:
+                                    logger.debug(f"Пробуем закрыть сеанс по пути: {close_path}")
+                                    try:
+                                        close_response = requests.delete(close_path, headers=headers, timeout=10, verify=verify_ssl)
+                                        if close_response.status_code in [200, 204]:
+                                            logger.info(f"  Сеанс {session_id} закрыт")
+                                            closed = True
+                                            break
+                                        elif close_response.status_code != 404:
+                                            logger.debug(f"  Ответ {close_response.status_code} для пути {close_path}")
+                                    except requests.exceptions.RequestException as e:
+                                        logger.debug(f"  Ошибка при закрытии сеанса по пути {close_path}: {e}")
+                                
+                                if not closed:
+                                    logger.warning(f"  Не удалось закрыть сеанс {session_id} ни по одному из путей")
                     else:
                         logger.info("Активных сеансов не найдено")
                 else:
                     logger.warning(f"Не удалось получить список сеансов: {sessions_response.status_code}")
-            elif response.status_code == 404:
-                logger.info(f"Файл не найден в Document Server (404) - возможно, файл не загружен в Document Server")
+            if not response:
+                logger.warning("Не удалось найти рабочий путь к WOPI API")
+                logger.info("Все пробуемые пути вернули ошибку или 404")
                 logger.info("Используем локальное закрытие процессов...")
                 return close_file_sessions_local(file_path)
-            else:
+            elif response.status_code == 404:
+                logger.warning(f"Файл не найден в Document Server (404)")
+                logger.info("Возможные причины:")
+                logger.info(f"  1. Файл не загружен в Document Server")
+                logger.info(f"  2. Неправильный P7_FILE_ID (текущий: {file_id})")
+                logger.info(f"  3. Файл находится по другому пути")
+                logger.info("Используем локальное закрытие процессов...")
+                return close_file_sessions_local(file_path)
+            elif response.status_code != 200:
                 logger.warning(f"Ошибка доступа к Document Server: {response.status_code}")
+                if hasattr(response, 'text'):
+                    logger.debug(f"Ответ сервера: {response.text[:200]}")
                 logger.info("Пробуем локальное закрытие процессов...")
                 return close_file_sessions_local(file_path)
             
