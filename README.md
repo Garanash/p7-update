@@ -111,7 +111,14 @@ P7_ACCESS_TOKEN = ""
 **Где найти:**
 - Если файл загружен в Document Server - используйте ID файла из системы
 - Или просто укажите имя файла: `Сборка Москва.xlsx`
-- ID можно найти в URL при открытии файла в P7-Офис
+- ID можно найти в URL при открытии файла в P7-Офис (в адресной строке браузера)
+- В административной панели Document Server в списке файлов
+
+**Документация:**
+- Работа с файлами через API: https://support.r7-office.ru/category/document_server/api-document_server/
+- WOPI CheckFileInfo: https://support.r7-office.ru/category/document_server/api-document_server/wopi-rest-api/
+
+**Примеры:**
 
 **Пример:**
 ```python
