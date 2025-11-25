@@ -375,14 +375,28 @@ def close_file_sessions_p7_api(file_path):
                 headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
             
             base_url = P7_DOC_SERVER_URL.rstrip('/')
+            file_name_encoded = requests.utils.quote(file_name, safe='')
+            file_id_encoded = requests.utils.quote(str(file_id), safe='')
+            
             wopi_paths = [
+                f"{base_url}/wopi/files/{file_id_encoded}",
                 f"{base_url}/wopi/files/{file_id}",
+                f"{base_url}/Products/Files/wopi/files/{file_id_encoded}",
                 f"{base_url}/Products/Files/wopi/files/{file_id}",
+                f"{base_url}/api/wopi/files/{file_id_encoded}",
                 f"{base_url}/api/wopi/files/{file_id}",
+                f"{base_url}/Products/api/wopi/files/{file_id_encoded}",
                 f"{base_url}/Products/api/wopi/files/{file_id}",
+                f"{base_url}/api/v1/files/{file_id_encoded}",
                 f"{base_url}/api/v1/files/{file_id}",
+                f"{base_url}/Products/Files/api/v1/files/{file_id_encoded}",
                 f"{base_url}/Products/Files/api/v1/files/{file_id}",
-                f"{base_url}/Products/api/v1/files/{file_id}"
+                f"{base_url}/Products/api/v1/files/{file_id_encoded}",
+                f"{base_url}/Products/api/v1/files/{file_id}",
+                f"{base_url}/wopi/files/{file_name_encoded}",
+                f"{base_url}/wopi/files/{file_name}",
+                f"{base_url}/Products/Files/wopi/files/{file_name_encoded}",
+                f"{base_url}/Products/Files/wopi/files/{file_name}"
             ]
             
             try:
