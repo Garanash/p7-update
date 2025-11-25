@@ -241,8 +241,25 @@ def update_ostanki_sheet(bot_file_path, main_file_path):
             if download_file_from_p7(file_id, main_file_path):
                 logger.info(f"Файл успешно скачан с сервера")
             else:
-                logger.error(f"Не удалось скачать файл с сервера и файл отсутствует локально")
-                return None
+                if P7_FILE_ID and P7_FILE_ID != os.path.basename(main_file_path):
+                    alt_path = P7_FILE_ID
+                    logger.info(f"Пробуем использовать файл с сервера: {alt_path}")
+                    if os.path.exists(alt_path):
+                        logger.info(f"Найден файл: {alt_path}, используем его")
+                        main_file_path = alt_path
+                    elif download_file_from_p7(file_id, alt_path):
+                        logger.info(f"Файл успешно скачан с сервера как: {alt_path}")
+                        main_file_path = alt_path
+                    else:
+                        logger.error(f"Не удалось скачать файл с сервера и файл отсутствует локально")
+                        logger.error(f"Пожалуйста, убедитесь, что файл находится в папке проекта")
+                        logger.error(f"Или настройте правильный доступ к Document Server через WOPI API")
+                        return None
+                else:
+                    logger.error(f"Не удалось скачать файл с сервера и файл отсутствует локально")
+                    logger.error(f"Пожалуйста, убедитесь, что файл '{main_file_path}' находится в папке проекта")
+                    logger.error(f"Или настройте правильный доступ к Document Server через WOPI API")
+                    return None
         
         logger.debug("Чтение файла бота...")
         bot_df = pd.read_excel(bot_file_path, sheet_name=0)
@@ -449,20 +466,23 @@ def close_file_sessions_p7_api(file_path):
             file_id_encoded = requests.utils.quote(str(file_id), safe='')
             
             wopi_paths = [
-                f"{base_url}/wopi/files/{file_id_encoded}",
-                f"{base_url}/wopi/files/{file_id}",
-                f"{base_url}/Products/Files/wopi/files/{file_id_encoded}",
                 f"{base_url}/Products/Files/wopi/files/{file_id}",
-                f"{base_url}/api/wopi/files/{file_id_encoded}",
-                f"{base_url}/api/wopi/files/{file_id}",
-                f"{base_url}/Products/api/wopi/files/{file_id_encoded}",
+                f"{base_url}/Products/Files/wopi/files/{file_id_encoded}",
+                f"{base_url}/wopi/files/{file_id}",
+                f"{base_url}/wopi/files/{file_id_encoded}",
                 f"{base_url}/Products/api/wopi/files/{file_id}",
-                f"{base_url}/api/v1/files/{file_id_encoded}",
-                f"{base_url}/api/v1/files/{file_id}",
-                f"{base_url}/Products/Files/api/v1/files/{file_id_encoded}",
+                f"{base_url}/Products/api/wopi/files/{file_id_encoded}",
+                f"{base_url}/api/wopi/files/{file_id}",
+                f"{base_url}/api/wopi/files/{file_id_encoded}",
                 f"{base_url}/Products/Files/api/v1/files/{file_id}",
-                f"{base_url}/Products/api/v1/files/{file_id_encoded}",
+                f"{base_url}/Products/Files/api/v1/files/{file_id_encoded}",
                 f"{base_url}/Products/api/v1/files/{file_id}",
+                f"{base_url}/Products/api/v1/files/{file_id_encoded}",
+                f"{base_url}/api/v1/files/{file_id}",
+                f"{base_url}/api/v1/files/{file_id_encoded}",
+                f"{base_url}/Products/Files/api/files/{file_id}",
+                f"{base_url}/Products/Files/api/files/{file_id_encoded}",
+                f"{base_url}/Products/Files/DocEditor.aspx?fileid={file_id}",
                 f"{base_url}/wopi/files/{file_name_encoded}",
                 f"{base_url}/wopi/files/{file_name}",
                 f"{base_url}/Products/Files/wopi/files/{file_name_encoded}",
@@ -721,8 +741,25 @@ def upload_file_to_p7(file_path):
             headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
         
         base_url = P7_DOC_SERVER_URL.rstrip('/')
-        wopi_url = f"{base_url}/wopi/files/{file_id}"
-        put_url = f"{wopi_url}/contents"
+        file_id_encoded = requests.utils.quote(str(file_id), safe='')
+        file_name_encoded = requests.utils.quote(file_name, safe='')
+        
+        upload_paths = [
+            f"{base_url}/Products/Files/wopi/files/{file_id}/contents",
+            f"{base_url}/Products/Files/wopi/files/{file_id_encoded}/contents",
+            f"{base_url}/wopi/files/{file_id}/contents",
+            f"{base_url}/wopi/files/{file_id_encoded}/contents",
+            f"{base_url}/Products/api/wopi/files/{file_id}/contents",
+            f"{base_url}/Products/api/wopi/files/{file_id_encoded}/contents",
+            f"{base_url}/api/wopi/files/{file_id}/contents",
+            f"{base_url}/api/wopi/files/{file_id_encoded}/contents",
+            f"{base_url}/Products/Files/api/files/{file_id}/contents",
+            f"{base_url}/Products/Files/api/files/{file_id_encoded}/contents",
+            f"{base_url}/wopi/files/{file_name_encoded}/contents",
+            f"{base_url}/wopi/files/{file_name}/contents",
+            f"{base_url}/Products/Files/wopi/files/{file_name_encoded}/contents",
+            f"{base_url}/Products/Files/wopi/files/{file_name}/contents"
+        ]
         
         logger.info(f"Загрузка обновленного файла в Document Server: {file_name}")
         
@@ -731,7 +768,26 @@ def upload_file_to_p7(file_path):
         
         headers["X-WOPI-Override"] = "PUT"
         headers["Content-Type"] = "application/octet-stream"
-        response = requests.post(put_url, headers=headers, data=file_content, timeout=30, verify=verify_ssl)
+        
+        uploaded = False
+        response = None
+        for upload_path in upload_paths:
+            logger.debug(f"Пробуем загрузить файл по пути: {upload_path}")
+            try:
+                test_response = requests.post(upload_path, headers=headers, data=file_content, timeout=30, verify=verify_ssl)
+                logger.debug(f"  Ответ: {test_response.status_code} - {test_response.reason}")
+                if test_response.status_code in [200, 201]:
+                    logger.info(f"✓ Файл успешно загружен по пути: {upload_path}")
+                    uploaded = True
+                    response = test_response
+                    break
+                elif test_response.status_code != 404:
+                    logger.debug(f"  Неожиданный ответ {test_response.status_code} для пути {upload_path}")
+            except requests.exceptions.RequestException as e:
+                logger.debug(f"  Ошибка при загрузке по пути {upload_path}: {e}")
+        
+        if not uploaded:
+            response = type('obj', (object,), {'status_code': 404})()
         
         if response.status_code in [200, 201]:
             logger.info("Файл успешно загружен в Document Server")
@@ -874,11 +930,20 @@ def main(use_local_file=None):
                 mail.logout()
                 return
         
+        main_file_to_use = MAIN_FILE
+        if P7_FILE_ID and P7_FILE_ID.endswith('.xlsx'):
+            if os.path.exists(P7_FILE_ID):
+                main_file_to_use = P7_FILE_ID
+                logger.info(f"Используем файл с сервера: {main_file_to_use}")
+            elif not os.path.exists(MAIN_FILE):
+                main_file_to_use = P7_FILE_ID
+                logger.info(f"Файл {MAIN_FILE} не найден, пробуем использовать файл с сервера: {main_file_to_use}")
+        
         logger.info("Закрытие сеансов файла перед обновлением...")
-        close_file_sessions(MAIN_FILE)
+        close_file_sessions(main_file_to_use)
         
         logger.info("Обновление листа 'остатки'...")
-        ostanki_df = update_ostanki_sheet(TEMP_BOT_FILE, MAIN_FILE)
+        ostanki_df = update_ostanki_sheet(TEMP_BOT_FILE, main_file_to_use)
         if ostanki_df is None:
             logger.error("Не удалось обновить лист остатки")
             if os.path.exists(TEMP_BOT_FILE):
