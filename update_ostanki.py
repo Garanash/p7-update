@@ -14,6 +14,8 @@ import subprocess
 import psutil
 import requests
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 
 EMAIL_LOGIN = "almazgeobur.it@mail.ru"
 EMAIL_PASSWORD = "Ba9uV5zDx6rE1fs6PgsV"
@@ -23,6 +25,7 @@ IMAP_PORT = 993
 MAIN_FILE = "Сборка Москва.xlsx"
 TEMP_BOT_FILE = "temp_bot_file.xlsx"
 SHEET_OSTANKI = "остатки"
+LOG_FILE = "update_ostanki.log"
 
 try:
     from config_p7 import P7_DOC_SERVER_URL, P7_ACCESS_TOKEN, P7_FILE_ID
@@ -32,34 +35,72 @@ except ImportError:
     P7_FILE_ID = os.getenv("P7_FILE_ID", "")
 
 
+def setup_logging():
+    logger = logging.getLogger('update_ostanki')
+    logger.setLevel(logging.DEBUG)
+    
+    if logger.handlers:
+        return logger
+    
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    file_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=10*1024*1024,
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+
+logger = setup_logging()
+
+
 def connect_to_email():
+    logger.info("Подключение к почтовому серверу...")
+    logger.debug(f"Сервер: {IMAP_SERVER}:{IMAP_PORT}, Логин: {EMAIL_LOGIN}")
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
         mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
         mail.select('inbox')
+        logger.info("Успешное подключение к почте")
         return mail
     except Exception as e:
-        print(f"Ошибка подключения к почте: {e}")
+        logger.error(f"Ошибка подключения к почте: {e}", exc_info=True)
         return None
 
 
 def find_latest_excel_attachment(mail):
+    logger.info("Поиск Excel файла в письмах...")
     try:
         status, messages = mail.search(None, 'UNSEEN')
         if status != 'OK':
-            print("Не удалось найти письма")
+            logger.warning("Не удалось найти письма")
             return None
         
         email_ids = messages[0].split()
-        print(f"Найдено непрочитанных писем: {len(email_ids)}")
+        logger.info(f"Найдено непрочитанных писем: {len(email_ids)}")
         
         if not email_ids:
-            print("Непрочитанных писем нет, ищем последние 50 писем...")
+            logger.info("Непрочитанных писем нет, ищем последние 50 писем...")
             status, messages = mail.search(None, 'ALL')
             if status == 'OK':
                 all_ids = messages[0].split()
                 email_ids = all_ids[-50:] if len(all_ids) > 50 else all_ids
-                print(f"Найдено всего писем: {len(all_ids)}, проверяем последние {len(email_ids)}")
+                logger.info(f"Найдено всего писем: {len(all_ids)}, проверяем последние {len(email_ids)}")
         
         excel_files_found = []
         for email_id in reversed(email_ids):
@@ -72,7 +113,7 @@ def find_latest_excel_attachment(mail):
                 email_message = email.message_from_bytes(email_body)
                 
                 subject = email_message.get('Subject', 'Без темы')
-                print(f"Проверяем письмо: {subject[:50]}...")
+                logger.debug(f"Проверяем письмо: {subject[:50]}...")
                 
                 for part in email_message.walk():
                     if part.get_content_disposition() == 'attachment':
@@ -88,55 +129,58 @@ def find_latest_excel_attachment(mail):
                             except:
                                 pass
                             
-                            print(f"  Найдено вложение: {filename}")
+                            logger.debug(f"  Найдено вложение: {filename}")
                             if filename and (filename.endswith('.xlsx') or filename.endswith('.xls')):
                                 excel_files_found.append((filename, part, email_id))
                                 filename_lower = filename.lower()
                                 if any(keyword in filename_lower for keyword in ['бот', 'bot', 'xlsx']):
-                                    print(f"[OK] Найден файл для бота: {filename}")
+                                    logger.info(f"Найден файл для бота: {filename}")
                                     return part, email_id
             except Exception as e:
-                print(f"Ошибка при обработке письма {email_id}: {e}")
+                logger.warning(f"Ошибка при обработке письма {email_id}: {e}")
                 continue
         
         if excel_files_found:
             filename, part, email_id = excel_files_found[-1]
-            print(f"Файл 'для бота' не найден, используем последний Excel файл: {filename}")
+            logger.info(f"Файл 'для бота' не найден, используем последний Excel файл: {filename}")
             return part, email_id
         
-        print("Excel файлы не найдены в письмах")
+        logger.warning("Excel файлы не найдены в письмах")
         return None
     except Exception as e:
-        print(f"Ошибка при поиске вложения: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Ошибка при поиске вложения: {e}", exc_info=True)
         return None
 
 
 def download_attachment(part, save_path):
+    logger.info(f"Скачивание файла в: {save_path}")
     try:
         with open(save_path, 'wb') as f:
             f.write(part.get_payload(decode=True))
-        print(f"Файл скачан: {save_path}")
+        file_size = os.path.getsize(save_path)
+        logger.info(f"Файл успешно скачан: {save_path} (размер: {file_size} байт)")
         return True
     except Exception as e:
-        print(f"Ошибка при скачивании файла: {e}")
+        logger.error(f"Ошибка при скачивании файла: {e}", exc_info=True)
         return False
 
 
 def update_ostanki_sheet(bot_file_path, main_file_path):
+    logger.info(f"Обновление листа '{SHEET_OSTANKI}' из файла: {bot_file_path}")
     try:
+        logger.debug("Чтение файла бота...")
         bot_df = pd.read_excel(bot_file_path, sheet_name=0)
-        print(f"Прочитано строк из файла бота: {len(bot_df)}")
-        print(f"Столбцы в файле бота: {list(bot_df.columns)}")
+        logger.info(f"Прочитано строк из файла бота: {len(bot_df)}")
+        logger.debug(f"Столбцы в файле бота: {list(bot_df.columns)}")
         
         for col in bot_df.columns:
             col_str = str(col).strip()
             if 'артикул' in col_str.lower():
-                print(f"Нормализация столбца '{col}' (удаление пробелов)")
+                logger.info(f"Нормализация столбца '{col}' (удаление пробелов)")
                 bot_df[col] = bot_df[col].astype(str).str.replace(' ', '').str.replace('\t', '').str.replace('\n', '').str.replace('\r', '')
                 break
         
+        logger.debug(f"Открытие файла: {main_file_path}")
         wb = load_workbook(main_file_path)
         
         existing_sheet = None
@@ -150,7 +194,7 @@ def update_ostanki_sheet(bot_file_path, main_file_path):
                 sheets_to_remove.append(sheet_name)
         
         for sheet_name in sheets_to_remove:
-            print(f"Удаление дубликата листа: '{sheet_name}'")
+            logger.info(f"Удаление дубликата листа: '{sheet_name}'")
             wb.remove(wb[sheet_name])
         
         if existing_sheet:
@@ -158,11 +202,12 @@ def update_ostanki_sheet(bot_file_path, main_file_path):
             if existing_sheet != SHEET_OSTANKI:
                 ws.title = SHEET_OSTANKI
             ws.delete_rows(1, ws.max_row)
-            print(f"Обновление существующего листа '{SHEET_OSTANKI}'")
+            logger.info(f"Обновление существующего листа '{SHEET_OSTANKI}'")
         else:
             ws = wb.create_sheet(SHEET_OSTANKI)
-            print(f"Создание нового листа '{SHEET_OSTANKI}'")
+            logger.info(f"Создание нового листа '{SHEET_OSTANKI}'")
         
+        logger.debug("Запись данных в лист...")
         headers = list(bot_df.columns)
         for col_idx, header in enumerate(headers, start=1):
             ws.cell(row=1, column=col_idx, value=header)
@@ -171,13 +216,12 @@ def update_ostanki_sheet(bot_file_path, main_file_path):
             for col_idx, value in enumerate(row_data, start=1):
                 ws.cell(row=row_idx, column=col_idx, value=value)
         
+        logger.debug("Сохранение файла...")
         wb.save(main_file_path)
-        print(f"Лист '{SHEET_OSTANKI}' обновлен")
+        logger.info(f"Лист '{SHEET_OSTANKI}' успешно обновлен ({len(bot_df)} строк)")
         return bot_df
     except Exception as e:
-        print(f"Ошибка при обновлении листа остатки: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Ошибка при обновлении листа остатки: {e}", exc_info=True)
         return None
 
 
@@ -208,11 +252,13 @@ def find_catalog_columns(ws):
 
 
 def create_ostanki_dict(ostanki_df):
+    logger.info("Создание словаря остатков...")
     ostanki_dict = {}
     
     catalog_cols = []
     ostanki_value_col = None
     
+    logger.debug("Поиск столбцов с номерами каталога и остатками...")
     for col in ostanki_df.columns:
         col_lower = str(col).lower().strip()
         col_exact = str(col).strip()
@@ -232,16 +278,16 @@ def create_ostanki_dict(ostanki_df):
             ostanki_value_col = col
     
     if not catalog_cols:
-        print(f"Не найдены столбцы с номерами каталога в листе остатки")
-        print(f"Столбцы: {list(ostanki_df.columns)}")
+        logger.error(f"Не найдены столбцы с номерами каталога в листе остатки")
+        logger.debug(f"Столбцы: {list(ostanki_df.columns)}")
         return ostanki_dict
     
     if not ostanki_value_col:
-        print(f"Не найден столбец с остатками в листе остатки")
-        print(f"Столбцы: {list(ostanki_df.columns)}")
+        logger.error(f"Не найден столбец с остатками в листе остатки")
+        logger.debug(f"Столбцы: {list(ostanki_df.columns)}")
         return ostanki_dict
     
-    print(f"Найден столбец с остатками: {ostanki_value_col}")
+    logger.info(f"Найден столбец с остатками: {ostanki_value_col}")
     
     number_col = None
     for i, col in enumerate(ostanki_df.columns):
@@ -255,25 +301,27 @@ def create_ostanki_dict(ostanki_df):
             break
     
     if number_col:
-        print(f"[OK] Найден критически важный столбец 'Номер': {number_col}")
+        logger.info(f"Найден критически важный столбец 'Номер': {number_col}")
     else:
         if len(ostanki_df.columns) > 1:
             potential_num_col = ostanki_df.columns[1]
-            print(f"[INFO] Пробуем использовать столбец по позиции [1]: '{potential_num_col}'")
+            logger.info(f"Пробуем использовать столбец по позиции [1]: '{potential_num_col}'")
             if potential_num_col not in catalog_cols:
                 catalog_cols.insert(0, potential_num_col)
                 number_col = potential_num_col
     
-    print(f"Найдены столбцы с номерами каталога (в порядке приоритета): {catalog_cols}")
+    logger.info(f"Найдены столбцы с номерами каталога (в порядке приоритета): {catalog_cols}")
     
     artikul_col = None
     for col in ostanki_df.columns:
         if 'артикул' in str(col).lower():
             artikul_col = col
-            print(f"Найден столбец 'Артикул': {artikul_col}, нормализация...")
+            logger.info(f"Найден столбец 'Артикул': {artikul_col}, нормализация...")
             ostanki_df[col] = ostanki_df[col].astype(str).str.replace(' ', '').str.replace('\t', '').str.replace('\n', '').str.replace('\r', '')
             break
     
+    logger.debug("Обработка строк для создания словаря остатков...")
+    processed_count = 0
     for _, row in ostanki_df.iterrows():
         ostanki_value = row[ostanki_value_col] if pd.notna(row[ostanki_value_col]) else 0
         try:
@@ -295,9 +343,10 @@ def create_ostanki_dict(ostanki_df):
                         ostanki_dict[catalog_num] += ostanki_value
                     else:
                         ostanki_dict[catalog_num] = ostanki_value
+                    processed_count += 1
                     break
     
-    print(f"Создан словарь остатков для {len(ostanki_dict)} позиций")
+    logger.info(f"Создан словарь остатков для {len(ostanki_dict)} позиций (обработано {processed_count} строк с остатками)")
     return ostanki_dict
 
 
@@ -307,10 +356,10 @@ def close_file_sessions_p7_api(file_path):
         file_name = os.path.basename(file_path)
         
         if not P7_DOC_SERVER_URL or P7_DOC_SERVER_URL == "" or "your-p7-doc-server" in P7_DOC_SERVER_URL:
-            print(f"\nP7_DOC_SERVER_URL не настроен, используем локальное закрытие процессов")
+            logger.info("P7_DOC_SERVER_URL не настроен, используем локальное закрытие процессов")
             return close_file_sessions_local(file_path)
         
-        print(f"\nЗакрытие сеансов P7-Офис через Document Server API для файла: {file_name}")
+        logger.info(f"Закрытие сеансов P7-Офис через Document Server API для файла: {file_name}")
         
         try:
             file_id = P7_FILE_ID if P7_FILE_ID else file_name
@@ -320,19 +369,19 @@ def close_file_sessions_p7_api(file_path):
                 headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
             
             wopi_url = f"{P7_DOC_SERVER_URL}/wopi/files/{file_id}"
-            
-            print(f"Проверка информации о файле через WOPI API...")
             check_info_url = f"{wopi_url}/checkfileinfo"
+            
+            logger.debug(f"Проверка информации о файле через WOPI API: {check_info_url}")
             response = requests.get(check_info_url, headers=headers, timeout=10)
             
             if response.status_code == 200:
                 file_info = response.json()
-                print(f"Файл найден в Document Server")
+                logger.info("Файл найден в Document Server")
                 
                 if file_info.get("UserCanWrite", False):
                     lock_value = file_info.get("LockValue", "")
                     if lock_value:
-                        print(f"Найдена блокировка файла: {lock_value}")
+                        logger.warning(f"Найдена блокировка файла: {lock_value}")
                         
                         unlock_url = f"{wopi_url}/unlock"
                         unlock_headers = headers.copy()
@@ -340,11 +389,12 @@ def close_file_sessions_p7_api(file_path):
                         
                         unlock_response = requests.post(unlock_url, headers=unlock_headers, timeout=10)
                         if unlock_response.status_code == 200:
-                            print("Блокировка файла снята через WOPI API")
+                            logger.info("Блокировка файла снята через WOPI API")
                         else:
-                            print(f"Не удалось снять блокировку: {unlock_response.status_code}")
+                            logger.warning(f"Не удалось снять блокировку: {unlock_response.status_code}")
                 
                 sessions_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions"
+                logger.debug(f"Получение списка сеансов: {sessions_url}")
                 sessions_response = requests.get(sessions_url, headers=headers, timeout=10)
                 
                 if sessions_response.status_code == 200:
@@ -352,69 +402,69 @@ def close_file_sessions_p7_api(file_path):
                     file_sessions = [s for s in sessions if file_id in str(s.get("documentId", "")) or file_name in str(s.get("documentName", ""))]
                     
                     if file_sessions:
-                        print(f"Найдено {len(file_sessions)} активных сеансов:")
+                        logger.info(f"Найдено {len(file_sessions)} активных сеансов:")
                         for session in file_sessions:
                             session_id = session.get("sessionId", "unknown")
                             user_name = session.get("userName", "unknown")
-                            print(f"  - Сеанс {session_id}: пользователь {user_name}")
+                            logger.info(f"  - Сеанс {session_id}: пользователь {user_name}")
                         
-                        print("Закрытие сеансов...")
+                        logger.info("Закрытие сеансов...")
                         for session in file_sessions:
                             session_id = session.get("sessionId")
                             if session_id:
                                 close_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions/{session_id}"
                                 close_response = requests.delete(close_url, headers=headers, timeout=10)
                                 if close_response.status_code in [200, 204]:
-                                    print(f"  Сеанс {session_id} закрыт")
+                                    logger.info(f"  Сеанс {session_id} закрыт")
                                 else:
-                                    print(f"  Не удалось закрыть сеанс {session_id}: {close_response.status_code}")
+                                    logger.warning(f"  Не удалось закрыть сеанс {session_id}: {close_response.status_code}")
                     else:
-                        print("Активных сеансов не найдено")
+                        logger.info("Активных сеансов не найдено")
                 else:
-                    print(f"Не удалось получить список сеансов: {sessions_response.status_code}")
+                    logger.warning(f"Не удалось получить список сеансов: {sessions_response.status_code}")
             else:
-                print(f"Файл не найден в Document Server или ошибка доступа: {response.status_code}")
-                print("Пробуем локальное закрытие процессов...")
+                logger.warning(f"Файл не найден в Document Server или ошибка доступа: {response.status_code}")
+                logger.info("Пробуем локальное закрытие процессов...")
                 return close_file_sessions_local(file_path)
             
             time.sleep(2)
             
             max_wait = 30
             wait_time = 0
+            logger.debug("Ожидание освобождения файла...")
             while wait_time < max_wait:
                 try:
                     with open(file_path, 'r+b') as f:
                         pass
-                    print("Файл освобожден и готов к обновлению")
+                    logger.info("Файл освобожден и готов к обновлению")
                     return True
                 except (PermissionError, IOError):
                     wait_time += 1
                     if wait_time % 5 == 0:
-                        print(f"Ожидание освобождения файла... ({wait_time}/{max_wait} сек)")
+                        logger.debug(f"Ожидание освобождения файла... ({wait_time}/{max_wait} сек)")
                     time.sleep(1)
             
-            print(f"Предупреждение: файл не освобожден за {max_wait} секунд, продолжаем...")
+            logger.warning(f"Файл не освобожден за {max_wait} секунд, продолжаем...")
             return True
             
         except requests.exceptions.RequestException as e:
-            print(f"Ошибка при работе с P7 Document Server API: {e}")
-            print("Пробуем локальное закрытие процессов...")
+            logger.error(f"Ошибка при работе с P7 Document Server API: {e}", exc_info=True)
+            logger.info("Пробуем локальное закрытие процессов...")
             return close_file_sessions_local(file_path)
             
     except Exception as e:
-        print(f"Ошибка при закрытии сеансов через P7 API: {e}")
-        import traceback
-        traceback.print_exc()
-        print("Пробуем локальное закрытие процессов...")
+        logger.error(f"Ошибка при закрытии сеансов через P7 API: {e}", exc_info=True)
+        logger.info("Пробуем локальное закрытие процессов...")
         return close_file_sessions_local(file_path)
 
 
 def close_file_sessions_local(file_path):
     try:
         file_path_abs = os.path.abspath(file_path)
-        print(f"Локальное закрытие процессов для файла: {file_path_abs}")
+        logger.info(f"Локальное закрытие процессов для файла: {file_path_abs}")
         
         processes_to_close = []
+        logger.debug("Поиск процессов, открывающих файл...")
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 proc_info = proc.info
@@ -437,18 +487,18 @@ def close_file_sessions_local(file_path):
                 continue
         
         if processes_to_close:
-            print(f"Найдено {len(processes_to_close)} процессов, открывающих файл:")
+            logger.info(f"Найдено {len(processes_to_close)} процессов, открывающих файл:")
             for pid, name in processes_to_close:
-                print(f"  - PID {pid}: {name}")
+                logger.info(f"  - PID {pid}: {name}")
             
-            print("Закрытие процессов...")
+            logger.info("Закрытие процессов...")
             for pid, name in processes_to_close:
                 try:
                     proc = psutil.Process(pid)
                     proc.terminate()
-                    print(f"  Закрыт процесс {name} (PID {pid})")
+                    logger.info(f"  Закрыт процесс {name} (PID {pid})")
                 except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-                    print(f"  Не удалось закрыть процесс {name} (PID {pid}): {e}")
+                    logger.warning(f"  Не удалось закрыть процесс {name} (PID {pid}): {e}")
             
             time.sleep(2)
             
@@ -457,34 +507,33 @@ def close_file_sessions_local(file_path):
                     proc = psutil.Process(pid)
                     if proc.is_running():
                         proc.kill()
-                        print(f"  Принудительно закрыт процесс {name} (PID {pid})")
+                        logger.info(f"  Принудительно закрыт процесс {name} (PID {pid})")
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
             
             time.sleep(1)
         else:
-            print("Файл не открыт в других процессах")
+            logger.info("Файл не открыт в других процессах")
         
         max_wait = 30
         wait_time = 0
+        logger.debug("Ожидание освобождения файла...")
         while wait_time < max_wait:
             try:
                 with open(file_path, 'r+b') as f:
                     pass
-                print("Файл освобожден и готов к обновлению")
+                logger.info("Файл освобожден и готов к обновлению")
                 return True
             except (PermissionError, IOError):
                 wait_time += 1
                 if wait_time % 5 == 0:
-                    print(f"Ожидание освобождения файла... ({wait_time}/{max_wait} сек)")
+                    logger.debug(f"Ожидание освобождения файла... ({wait_time}/{max_wait} сек)")
                 time.sleep(1)
         
-        print(f"Предупреждение: файл не освобожден за {max_wait} секунд, продолжаем...")
+        logger.warning(f"Файл не освобожден за {max_wait} секунд, продолжаем...")
         return False
     except Exception as e:
-        print(f"Ошибка при локальном закрытии сеансов: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Ошибка при локальном закрытии сеансов: {e}", exc_info=True)
         return False
 
 
@@ -493,23 +542,31 @@ def close_file_sessions(file_path):
 
 
 def update_ostanki_in_all_sheets(main_file_path, ostanki_dict):
+    logger.info(f"Обновление остатков на всех листах файла: {main_file_path}")
+    logger.debug(f"Размер словаря остатков: {len(ostanki_dict)} позиций")
     try:
         wb = load_workbook(main_file_path)
         updated_sheets = []
+        total_sheets = len([s for s in wb.sheetnames if s.lower() != SHEET_OSTANKI.lower()])
+        logger.info(f"Обработка {total_sheets} листов (кроме '{SHEET_OSTANKI}')...")
         
         for sheet_name in wb.sheetnames:
             if sheet_name.lower() == SHEET_OSTANKI.lower():
                 continue
             
+            logger.debug(f"Обработка листа: {sheet_name}")
             ws = wb[sheet_name]
             catalog_col, catalog_agb_col, ostanki_col = find_catalog_columns(ws)
             
             if not ostanki_col:
                 ostanki_col = ws.max_column + 1
                 ws.cell(row=1, column=ostanki_col, value="Остатки на складах")
+                logger.debug(f"Создан столбец 'Остатки на складах' в листе '{sheet_name}'")
             
             if catalog_col or catalog_agb_col:
+                logger.debug(f"Найдены столбцы каталога: основной={catalog_col}, АГБ={catalog_agb_col}, остатки={ostanki_col}")
                 updated_count = 0
+                matched_count = 0
                 for row in range(2, ws.max_row + 1):
                     catalog_num = None
                     
@@ -529,11 +586,13 @@ def update_ostanki_in_all_sheets(main_file_path, ostanki_dict):
                         found_value = None
                         if catalog_num_clean in ostanki_dict:
                             found_value = ostanki_dict[catalog_num_clean]
+                            matched_count += 1
                         else:
                             for key in ostanki_dict.keys():
                                 key_normalized = str(key).replace(' ', '').replace('\t', '').replace('\n', '').replace('\r', '').lower()
                                 if catalog_num_clean in key_normalized or key_normalized in catalog_num_clean:
                                     found_value = ostanki_dict[key]
+                                    matched_count += 1
                                     break
                         
                         try:
@@ -549,93 +608,109 @@ def update_ostanki_in_all_sheets(main_file_path, ostanki_dict):
                 
                 if updated_count > 0:
                     updated_sheets.append(f"{sheet_name} ({updated_count} строк)")
-                    print(f"Обновлен лист '{sheet_name}': {updated_count} строк")
+                    logger.info(f"Обновлен лист '{sheet_name}': {updated_count} строк обновлено, {matched_count} совпадений найдено")
+                else:
+                    logger.debug(f"Лист '{sheet_name}': совпадений не найдено")
+            else:
+                logger.debug(f"Лист '{sheet_name}': столбцы каталога не найдены, пропуск")
         
+        logger.debug("Сохранение файла...")
         wb.save(main_file_path)
-        print(f"Всего обновлено листов: {len(updated_sheets)}")
+        logger.info(f"Всего обновлено листов: {len(updated_sheets)}")
         return updated_sheets
     except Exception as e:
-        print(f"Ошибка при обновлении листов: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Ошибка при обновлении листов: {e}", exc_info=True)
         return []
 
 
 def main(use_local_file=None):
-    print("=" * 50)
-    print("Начало обновления остатков")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("Начало обновления остатков")
+    logger.info("=" * 50)
     
+    start_time = time.time()
     mail = None
     
-    if use_local_file:
-        print(f"\n1. Использование локального файла: {use_local_file}")
-        if not os.path.exists(use_local_file):
-            print(f"Файл не найден: {use_local_file}")
-            return
-        import shutil
-        shutil.copy(use_local_file, TEMP_BOT_FILE)
-        print(f"Файл скопирован в {TEMP_BOT_FILE}")
-    else:
-        print("\n1. Подключение к почте...")
-        mail = connect_to_email()
-        if not mail:
-            print("Не удалось подключиться к почте")
+    try:
+        if use_local_file:
+            logger.info(f"Использование локального файла: {use_local_file}")
+            if not os.path.exists(use_local_file):
+                logger.error(f"Файл не найден: {use_local_file}")
+                return
+            import shutil
+            shutil.copy(use_local_file, TEMP_BOT_FILE)
+            logger.info(f"Файл скопирован в {TEMP_BOT_FILE}")
+        else:
+            logger.info("Подключение к почте...")
+            mail = connect_to_email()
+            if not mail:
+                logger.error("Не удалось подключиться к почте")
+                return
+            
+            logger.info("Поиск файла в почте...")
+            attachment_data = find_latest_excel_attachment(mail)
+            if not attachment_data:
+                logger.error("Файл не найден в почте")
+                mail.close()
+                mail.logout()
+                return
+            
+            part, email_id = attachment_data
+            
+            logger.info("Скачивание файла...")
+            if not download_attachment(part, TEMP_BOT_FILE):
+                logger.error("Не удалось скачать файл")
+                mail.close()
+                mail.logout()
+                return
+        
+        logger.info("Закрытие сеансов файла перед обновлением...")
+        close_file_sessions(MAIN_FILE)
+        
+        logger.info("Обновление листа 'остатки'...")
+        ostanki_df = update_ostanki_sheet(TEMP_BOT_FILE, MAIN_FILE)
+        if ostanki_df is None:
+            logger.error("Не удалось обновить лист остатки")
+            if os.path.exists(TEMP_BOT_FILE):
+                os.remove(TEMP_BOT_FILE)
+            if mail:
+                mail.close()
+                mail.logout()
             return
         
-        print("\n2. Поиск файла в почте...")
-        attachment_data = find_latest_excel_attachment(mail)
-        if not attachment_data:
-            print("Файл не найден в почте")
-            mail.close()
-            mail.logout()
-            return
+        logger.info("Создание словаря остатков...")
+        ostanki_dict = create_ostanki_dict(ostanki_df)
         
-        part, email_id = attachment_data
+        logger.info("Обновление остатков на всех листах...")
+        close_file_sessions(MAIN_FILE)
+        updated_sheets = update_ostanki_in_all_sheets(MAIN_FILE, ostanki_dict)
         
-        print("\n3. Скачивание файла...")
-        if not download_attachment(part, TEMP_BOT_FILE):
-            print("Не удалось скачать файл")
-            mail.close()
-            mail.logout()
-            return
-    
-    print("\n4. Закрытие сеансов файла перед обновлением...")
-    close_file_sessions(MAIN_FILE)
-    
-    print("\n5. Обновление листа 'остатки'...")
-    ostanki_df = update_ostanki_sheet(TEMP_BOT_FILE, MAIN_FILE)
-    if ostanki_df is None:
-        print("Не удалось обновить лист остатки")
         if os.path.exists(TEMP_BOT_FILE):
             os.remove(TEMP_BOT_FILE)
+            logger.debug(f"Временный файл удален: {TEMP_BOT_FILE}")
+        
         if mail:
             mail.close()
             mail.logout()
-        return
-    
-    print("\n6. Создание словаря остатков...")
-    ostanki_dict = create_ostanki_dict(ostanki_df)
-    
-    print("\n7. Обновление остатков на всех листах...")
-    close_file_sessions(MAIN_FILE)
-    updated_sheets = update_ostanki_in_all_sheets(MAIN_FILE, ostanki_dict)
-    
-    if os.path.exists(TEMP_BOT_FILE):
-        os.remove(TEMP_BOT_FILE)
-        print(f"\nВременный файл удален: {TEMP_BOT_FILE}")
-    
-    if mail:
-        mail.close()
-        mail.logout()
-    
-    print("\n" + "=" * 50)
-    print("Обновление завершено успешно!")
-    print("=" * 50)
-    if updated_sheets:
-        print("\nОбновленные листы:")
-        for sheet_info in updated_sheets:
-            print(f"  - {sheet_info}")
+            logger.debug("Соединение с почтой закрыто")
+        
+        elapsed_time = time.time() - start_time
+        logger.info("=" * 50)
+        logger.info("Обновление завершено успешно!")
+        logger.info(f"Время выполнения: {elapsed_time:.2f} секунд")
+        logger.info("=" * 50)
+        if updated_sheets:
+            logger.info("Обновленные листы:")
+            for sheet_info in updated_sheets:
+                logger.info(f"  - {sheet_info}")
+    except Exception as e:
+        logger.error(f"Критическая ошибка в main(): {e}", exc_info=True)
+        if mail:
+            try:
+                mail.close()
+                mail.logout()
+            except:
+                pass
 
 
 if __name__ == "__main__":
