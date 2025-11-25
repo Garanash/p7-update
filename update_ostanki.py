@@ -16,6 +16,9 @@ import requests
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 EMAIL_LOGIN = "almazgeobur.it@mail.ru"
 EMAIL_PASSWORD = "Ba9uV5zDx6rE1fs6PgsV"
@@ -28,11 +31,14 @@ SHEET_OSTANKI = "остатки"
 LOG_FILE = "update_ostanki.log"
 
 try:
-    from config_p7 import P7_DOC_SERVER_URL, P7_ACCESS_TOKEN, P7_FILE_ID
+    from config_p7 import P7_DOC_SERVER_URL, P7_ACCESS_TOKEN, P7_FILE_ID, P7_VERIFY_SSL
 except ImportError:
     P7_DOC_SERVER_URL = os.getenv("P7_DOC_SERVER_URL", "")
     P7_ACCESS_TOKEN = os.getenv("P7_ACCESS_TOKEN", "")
     P7_FILE_ID = os.getenv("P7_FILE_ID", "")
+    P7_VERIFY_SSL = os.getenv("P7_VERIFY_SSL", "True").lower() == "true"
+except AttributeError:
+    P7_VERIFY_SSL = False
 
 
 def setup_logging():
@@ -371,8 +377,12 @@ def close_file_sessions_p7_api(file_path):
             wopi_url = f"{P7_DOC_SERVER_URL}/wopi/files/{file_id}"
             check_info_url = f"{wopi_url}/checkfileinfo"
             
-            logger.debug(f"Проверка информации о файле через WOPI API: {check_info_url}")
-            response = requests.get(check_info_url, headers=headers, timeout=10)
+            try:
+                verify_ssl = P7_VERIFY_SSL
+            except NameError:
+                verify_ssl = True
+            logger.debug(f"Проверка информации о файле через WOPI API: {check_info_url} (SSL verify: {verify_ssl})")
+            response = requests.get(check_info_url, headers=headers, timeout=10, verify=verify_ssl)
             
             if response.status_code == 200:
                 file_info = response.json()
@@ -387,7 +397,7 @@ def close_file_sessions_p7_api(file_path):
                         unlock_headers = headers.copy()
                         unlock_headers["X-WOPI-Lock"] = lock_value
                         
-                        unlock_response = requests.post(unlock_url, headers=unlock_headers, timeout=10)
+                        unlock_response = requests.post(unlock_url, headers=unlock_headers, timeout=10, verify=verify_ssl)
                         if unlock_response.status_code == 200:
                             logger.info("Блокировка файла снята через WOPI API")
                         else:
@@ -395,7 +405,7 @@ def close_file_sessions_p7_api(file_path):
                 
                 sessions_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions"
                 logger.debug(f"Получение списка сеансов: {sessions_url}")
-                sessions_response = requests.get(sessions_url, headers=headers, timeout=10)
+                sessions_response = requests.get(sessions_url, headers=headers, timeout=10, verify=verify_ssl)
                 
                 if sessions_response.status_code == 200:
                     sessions = sessions_response.json()
@@ -413,7 +423,7 @@ def close_file_sessions_p7_api(file_path):
                             session_id = session.get("sessionId")
                             if session_id:
                                 close_url = f"{P7_DOC_SERVER_URL}/api/v1/sessions/{session_id}"
-                                close_response = requests.delete(close_url, headers=headers, timeout=10)
+                                close_response = requests.delete(close_url, headers=headers, timeout=10, verify=verify_ssl)
                                 if close_response.status_code in [200, 204]:
                                     logger.info(f"  Сеанс {session_id} закрыт")
                                 else:
@@ -422,8 +432,12 @@ def close_file_sessions_p7_api(file_path):
                         logger.info("Активных сеансов не найдено")
                 else:
                     logger.warning(f"Не удалось получить список сеансов: {sessions_response.status_code}")
+            elif response.status_code == 404:
+                logger.info(f"Файл не найден в Document Server (404) - возможно, файл не загружен в Document Server")
+                logger.info("Используем локальное закрытие процессов...")
+                return close_file_sessions_local(file_path)
             else:
-                logger.warning(f"Файл не найден в Document Server или ошибка доступа: {response.status_code}")
+                logger.warning(f"Ошибка доступа к Document Server: {response.status_code}")
                 logger.info("Пробуем локальное закрытие процессов...")
                 return close_file_sessions_local(file_path)
             
@@ -539,6 +553,54 @@ def close_file_sessions_local(file_path):
 
 def close_file_sessions(file_path):
     return close_file_sessions_p7_api(file_path)
+
+
+def upload_file_to_p7(file_path):
+    try:
+        if not P7_DOC_SERVER_URL or P7_DOC_SERVER_URL == "" or "your-p7-doc-server" in P7_DOC_SERVER_URL:
+            logger.debug("P7_DOC_SERVER_URL не настроен, пропускаем загрузку файла")
+            return True
+        
+        file_name = os.path.basename(file_path)
+        file_id = P7_FILE_ID if P7_FILE_ID else file_name
+        
+        try:
+            verify_ssl = P7_VERIFY_SSL
+        except NameError:
+            verify_ssl = True
+        
+        headers = {}
+        if P7_ACCESS_TOKEN:
+            headers["Authorization"] = f"Bearer {P7_ACCESS_TOKEN}"
+        
+        wopi_url = f"{P7_DOC_SERVER_URL}/wopi/files/{file_id}"
+        put_url = f"{wopi_url}/contents"
+        
+        logger.info(f"Загрузка обновленного файла в Document Server: {file_name}")
+        
+        with open(file_path, 'rb') as f:
+            file_content = f.read()
+        
+        headers["X-WOPI-Override"] = "PUT"
+        headers["Content-Type"] = "application/octet-stream"
+        response = requests.post(put_url, headers=headers, data=file_content, timeout=30, verify=verify_ssl)
+        
+        if response.status_code in [200, 201]:
+            logger.info("Файл успешно загружен в Document Server")
+            return True
+        elif response.status_code == 404:
+            logger.info("Файл не найден в Document Server (404) - возможно, файл не загружен в Document Server")
+            logger.debug("Продолжаем работу без загрузки файла")
+            return False
+        else:
+            logger.warning(f"Не удалось загрузить файл в Document Server: {response.status_code}")
+            logger.debug(f"Ответ сервера: {response.text[:200] if hasattr(response, 'text') else 'N/A'}")
+            return False
+            
+    except Exception as e:
+        logger.warning(f"Ошибка при загрузке файла в Document Server: {e}")
+        logger.debug("Продолжаем работу без загрузки файла")
+        return False
 
 
 def update_ostanki_in_all_sheets(main_file_path, ostanki_dict):
@@ -684,6 +746,9 @@ def main(use_local_file=None):
         logger.info("Обновление остатков на всех листах...")
         close_file_sessions(MAIN_FILE)
         updated_sheets = update_ostanki_in_all_sheets(MAIN_FILE, ostanki_dict)
+        
+        logger.info("Загрузка обновленного файла в Document Server...")
+        upload_file_to_p7(MAIN_FILE)
         
         if os.path.exists(TEMP_BOT_FILE):
             os.remove(TEMP_BOT_FILE)
